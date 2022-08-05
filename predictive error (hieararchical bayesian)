@@ -1,0 +1,123 @@
+library(tidyverse)
+library(lme4)
+library(runjags)
+library(rjags)
+library(coda)
+###################################################################################################
+#IV: predictive error##############################################################################
+#DV: unpleasantness rating#########################################################################
+data = read.table('D:\\EMG_Output_V9\\Ratings_100.tab')
+
+data$probability <- as.numeric(sub("%", "",data$probability,fixed=TRUE))/100
+
+#keep all the trails where data$shock==1
+newdata = data[data$shock==1,]
+
+#create a predictive error term
+for (i in 1:length(newdata$shock)){
+  newdata$prederror[i] = (1-newdata$probability[i]) * newdata$intensity[i]
+}
+
+y = newdata$unpleasantness
+data_shock= list(
+  y = newdata$unpleasantness,
+  s = newdata$participant,
+  x1 = newdata$prederror,
+  Nsubj = 40,
+  Ntotal = length(y)
+)
+
+modelString_shock='
+model{
+  for (i in 1:Ntotal){
+    y[i] ~ dnorm(beta0[s[i]] + beta1[s[i]] * x1[i], tau)
+}
+  for (j in 1:Nsubj){
+    beta0[j] ~ dnorm(beta0mu, 1/(beta0sigma)^2)
+    beta1[j] ~ dnorm(beta1mu, 1/(beta1sigma)^2)
+  }
+  
+    tau = 1/pow(sigma,2)
+    sigma ~ dunif(1e-3,1e3)
+    beta0mu ~ dnorm(0,1/1000)
+    beta1mu ~ dnorm(0,1/1000)
+    beta0sigma ~ dunif(1e-3,1e3)
+    beta1sigma ~ dunif(1e-3,1e3)
+}'
+
+writeLines(modelString_shock, con='model_shock.txt')
+
+parameters_shock = c('beta0mu','beta1mu','beta0sigma','beta1sigma')
+
+out_shock = run.jags(data = data_shock,
+                 model = 'model_shock.txt',
+                 n.chains = 3,
+                 sample = 5000,
+                 burnin = 1000,
+                 adapt = 1000,
+                 monitor = parameters_shock)
+
+result_shock = as.mcmc.list(out_shock)
+gelman.diag(result_shock)
+summary(result_shock)
+plot(result_shock)
+
+freq_model_shock <- lmer(unpleasantness ~ 1 + prederror + (0 + prederror | participant), data=newdata)
+summary(freq_model_shock)
+
+################################################################################
+#IV: predictive error###########################################################
+#DV: pleasantness###############################################################
+#keep all the trails where data$shock==0
+newdata_b = data[data$shock==0,]
+for (i in 1:length(newdata_b)){
+  newdata_b$prederror[i] = newdata_b$probability[i]
+}
+
+y = newdata_b$pleasantness
+data_omission = list(
+  y = newdata_b$pleasantness,
+  s = newdata_b$participant,
+  x1 = newdata_b$prederror,
+  Nsubj = 40,
+  Ntotal = length(y)
+)
+
+modelString_omission='
+model{
+  for (i in 1:Ntotal){
+    y[i] ~ dnorm(beta0[s[i]] + beta1[s[i]] * x1[i], tau)
+}
+  for (j in 1:Nsubj){
+    beta0[j] ~ dnorm(beta0mu, 1/(beta0sigma)^2)
+    beta1[j] ~ dnorm(beta1mu, 1/(beta1sigma)^2)
+  }
+  
+    tau = 1/pow(sigma,2)
+    sigma ~ dunif(1e-3,1e3)
+    beta0mu ~ dnorm(0,1/1000)
+    beta1mu ~ dnorm(0,1/1000)
+    beta0sigma ~ dunif(1e-3,1e3)
+    beta1sigma ~ dunif(1e-3,1e3)
+}'
+
+writeLines(modelString_omission, con='model_omission.txt')
+
+parameters_omission = c('beta0mu','beta1mu','beta0sigma','beta1sigma')
+
+out_omission = run.jags(
+                 data = data_omission,
+                 model = 'model_omission.txt',
+                 n.chains = 3,
+                 sample = 5000,
+                 burnin = 1000,
+                 adapt = 1000,
+                 monitor = parameters_omission)
+
+result_omission = as.mcmc.list(out_omission)
+gelman.diag(result_omission)
+summary(result_omission)
+plot(result_omission)
+
+freq_model_omission <- lmer(pleasantness ~ 1 + prederror + (0 + prederror | participant), data=newdata_b)
+summary(freq_model_omission)
